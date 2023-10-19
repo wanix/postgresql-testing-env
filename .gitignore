@@ -1,0 +1,11 @@
+# Default local Kubeconfig
+postgresql-testing-env.kubeconfig
+
+# Default local dir for persistant volumes
+persistentVolumesData/pv*
+
+# IDE
+.idea/
+.vscode
+*.swp
+*.iml
