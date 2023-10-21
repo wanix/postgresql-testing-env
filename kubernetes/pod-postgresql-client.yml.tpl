@@ -3,6 +3,7 @@ kind: Pod
 metadata:
   labels:
     app: infra-psql
+    launchedBy: ${USER}
   name: ${PGINSTANCENAME}-client
 spec:
   containers:

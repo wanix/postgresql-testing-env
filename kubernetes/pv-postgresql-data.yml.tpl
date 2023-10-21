@@ -2,11 +2,11 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: pv-postgresql-data
+  name: pv-pgdata-${PGINSTANCENAME}
 spec:
   accessModes:
     - ReadWriteOnce
   capacity:
-    storage: 20Gi
+    storage: ${PGDISKSIZE}
   hostPath:
-    path: /tmp/hostpath_pv_data/postgresql_data
+    path: ${KUBEMOUNTPATH}
