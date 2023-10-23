@@ -1,8 +1,13 @@
 # Default local Kubeconfig
 postgresql-testing-env.kubeconfig
 
+# Generated/Prepared files
+generated/k8s/*.d/
+generated/k8s/*.kubeconfig
+generated/cfg/*.d/
+
 # Default local dir for persistant volumes
-persistentVolumesData/pv*
+persistentVolumesData/*.d/**
 
 # IDE
 .idea/
