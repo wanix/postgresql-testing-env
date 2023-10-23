@@ -132,6 +132,7 @@ confdelete: stop
 
 client :
 	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml
+	@sleep 2s
 	@kubectl exec -n $(namespace) -it $(postgresqlInstance)-client -- \
 	  psql -h postgresql-testing.$(namespace).svc.cluster.local -U postgres -d $(postgresqlDb)
 
