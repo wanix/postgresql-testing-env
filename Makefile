@@ -1,6 +1,6 @@
 .PHONY : asdf-install \
 	configure start stop \
-	clean \
+	deleteCluster deleteProfile mrproper \
 	client \
 	dashboard
 
@@ -107,28 +107,27 @@ else
 	@echo This operation is for minikube driver only !
 endif
 
-clean :
-	-kubectl delete -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml
-	-@helm delete -n $(namespace) $(postgresqlInstance)
-	-@kubectl delete -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-data.yml
-	-@kubectl delete -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data.yml
+deleteCluster :
 ifeq ($(minikube), true)
 	-@minikube delete -p $(k8scluster)
 endif
 
-mrproper: stop
+mrproper: deleteCluster
 	rm -f cfg/helm-conf--*.yml
 	rm -Rf persistentVolumesData/*.d
 	rm -Rf generated/k8s/*.d
 	rm -Rf generated/cfg/*.d
 
-confdelete: stop
+deleteProfile : deleteCluster
 	rm -f $(generated_k8s_path)/pod-postgresql-client.yml
 	rm -f $(generated_k8s_path)/pv-postgresql-data.yml
 	rm -f $(generated_k8s_path)/pvc-postgresql-data.yml
-	rm -f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
 	-rmdir $(generated_k8s_path)
+
+	rm -f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
 	-rmdir $(generated_cfg_path)
+
+	-rm -Rf $(minikubePersistantPath)
 
 client :
 	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml

@@ -15,8 +15,14 @@ make start
 make client
 ```
 
-Once tests done
+To delete the cluster but keep the configuration for next start:
 
 ```bash
-make clean
+make deleteCluster
+```
+
+To drop everything (you may have to do some sudo removal due to container ownership):
+
+```bash
+make deleteProfile
 ```
