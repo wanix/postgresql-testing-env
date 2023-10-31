@@ -1,5 +1,5 @@
 .PHONY : asdf-install \
-	configure start stop \
+	configure start stop info \
 	deleteCluster deleteProfile mrproper \
 	client \
 	dashboard
@@ -12,6 +12,7 @@ k8scluster=k8s-postgresql-testing-env
 kubeconfig=${PWD}/generated/k8s/$(k8scluster).kubeconfig
 kubeversion=$(shell grep "kubectl " .tool-versions | cut -d " " -f 2)
 namespace=default
+with_monitoring=true
 
 postgresqlInstance=postgresql-testing
 postgresqlVersion=16.0.0
@@ -58,13 +59,24 @@ asdf-install :
 	@asdf install
 
 configure:
-	@test -d $(minikubePersistantPath) || mkdir -p $(minikubePersistantPath)
+	@test -d $(minikubePersistantPath) || mkdir -p $(minikubePersistantPath)/postgresql \
+											$(minikubePersistantPath)/psql \
+											$(minikubePersistantPath)/pgwatch2/pg \
+											$(minikubePersistantPath)/pgwatch2/grafana \
+											$(minikubePersistantPath)/pgwatch2/config
 	@test -d $(generated_k8s_path) || mkdir -p $(generated_k8s_path)
 	@test -d $(generated_cfg_path) || mkdir -p $(generated_cfg_path)
 
+	@cat kubernetes/cm-postgresql-client.yml.tpl  | envsubst > $(generated_k8s_path)/cm-postgresql-client.yml
 	@cat kubernetes/pod-postgresql-client.yml.tpl | envsubst > $(generated_k8s_path)/pod-postgresql-client.yml
-	@cat kubernetes/pv-postgresql-data.yml.tpl | envsubst > $(generated_k8s_path)/pv-postgresql-data.yml
+	@cat kubernetes/pv-postgresql-client.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-client.yml
+	@cat kubernetes/pvc-postgresql-client.yml.tpl | envsubst > $(generated_k8s_path)/pvc-postgresql-client.yml
+
+	@cat kubernetes/pv-postgresql-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-data.yml
 	@cat kubernetes/pvc-postgresql-data.yml.tpl | envsubst > $(generated_k8s_path)/pvc-postgresql-data.yml
+
+	@cat kubernetes/pv-pgwatch2-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-pgwatch2-data.yml
+	@cat kubernetes/pvc-pgwatch2-data.yml.tpl | envsubst > $(generated_k8s_path)/pvc-pgwatch2-data.yml
 
 ifeq ("$(wildcard $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml)","")
     #File not exists
@@ -72,7 +84,11 @@ ifeq ("$(wildcard $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml)","
 	@chmod 600 $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
 endif
 
-start : configure
+
+
+start : configure start_minikube install_postgresql install_monitoring info
+
+start_minikube :
 ifeq ($(minikube), true)
   ifeq ($(minikubeDriver), docker)
 	@minikube start -p $(k8scluster) $(minikubeResources) \
@@ -87,18 +103,40 @@ ifeq ($(minikube), true)
 	  --nodes $(minikubeNodes)
   endif
 endif
+
+install_postgresql :
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data.yml
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-data.yml
 
-	@helm install -n $(namespace) $(postgresqlInstance) oci://registry-1.docker.io/bitnamicharts/postgresql \
-	  -f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
+	@helm list -n $(namespace) | egrep -q '^$(postgresqlInstance)\s' \
+		|| helm install -n $(namespace) $(postgresqlInstance) oci://registry-1.docker.io/bitnamicharts/postgresql \
+			-f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml \
+		&& helm upgrade -n $(namespace) $(postgresqlInstance) oci://registry-1.docker.io/bitnamicharts/postgresql \
+			-f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
 
+install_monitoring :
+ifeq ($(minikube), true)
+  ifeq ($(with_monitoring), true)
+	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-pgwatch2-data.yml
+	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-pgwatch2-data.yml
+  endif
+endif
+
+
+info : status
 	@echo
 	@echo The configuration for your chart is there with sensitive data:
 	@echo   $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
 	@echo
 	@echo You can now set your env:
 	@echo  export KUBECONFIG="$(kubeconfig)"
+
+status :
+ifeq ($(minikube), true)
+	@minikube status -p $(k8scluster) -l cluster
+else
+	@echo This operation is for minikube driver only !
+endif
 
 stop :
 ifeq ($(minikube), true)
@@ -119,17 +157,18 @@ mrproper: deleteCluster
 	rm -Rf generated/cfg/*.d
 
 deleteProfile : deleteCluster
-	rm -f $(generated_k8s_path)/pod-postgresql-client.yml
-	rm -f $(generated_k8s_path)/pv-postgresql-data.yml
-	rm -f $(generated_k8s_path)/pvc-postgresql-data.yml
+	rm -f $(generated_k8s_path)/*.yml
 	-rmdir $(generated_k8s_path)
 
-	rm -f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
+	rm -f $(generated_cfg_path)/*.yml
 	-rmdir $(generated_cfg_path)
 
 	-rm -Rf $(minikubePersistantPath)
 
 client :
+	kubectl apply -n $(namespace) -f $(generated_k8s_path)/cm-postgresql-client.yml
+	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-client.yml
+	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-client.yml
 	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml
 	@sleep 2s
 	@kubectl exec -n $(namespace) -it $(postgresqlInstance)-client -- \
