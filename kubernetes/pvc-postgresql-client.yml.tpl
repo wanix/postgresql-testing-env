@@ -2,11 +2,11 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: pvc-pgdata-${PGINSTANCENAME}
+  name: pvc-pgsql-${PGINSTANCENAME}
 spec:
   storageClassName: manual
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: ${PGDISKSIZE}
+      storage: 128Mi
