@@ -66,6 +66,7 @@ asdf-install :
 	@asdf install
 
 configure:
+	@echo "-- Creating configuration files and needed directories"
 	@test -d $(minikubePersistantPath) || mkdir -p $(minikubePersistantPath)/postgresql \
 											$(minikubePersistantPath)/psql
 	@test -d $(generated_k8s_path) || mkdir -p $(generated_k8s_path)
@@ -89,6 +90,7 @@ start : configure start_minikube install_cloudnative_pg install_monitoring insta
 
 start_minikube :
 ifeq ($(minikube), true)
+	@echo "-- Starting Minikube"
   ifeq ($(minikubeDriver), docker)
 	@minikube start -p $(k8scluster) $(minikubeResources) \
 	  --kubernetes-version=$(kubeversion) \
@@ -104,34 +106,39 @@ ifeq ($(minikube), true)
 endif
 
 install_cloudnative_pg :
+	@echo "-- Installing cloudnative-pg operator"
 	@kubectl apply -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v$(cnpgVersion)/releases/cnpg-$(cnpgVersion).yaml
 	@kubectl wait pod --timeout 120s --for=condition=Ready -n cnpg-system -l app.kubernetes.io/name=cloudnative-pg
-	@test -f $(minikubePersistantPath)/postgresql/flag-cnpg.tmp || (sleep 10s && touch $(minikubePersistantPath)/postgresql/flag-cnpg.tmp)
+	@test -f $(minikubePersistantPath)/postgresql/flag-cnpg.flag || (sleep 10s && touch $(minikubePersistantPath)/postgresql/flag-cnpg.flag)
 
 install_postgresql :
+	@echo "-- Creating PostgreSQL Cluster PVs"
 	@for i in $(shell seq -w 1 $(postgresqlNodes)); do \
 	    export PGNODE=$$i; \
 		kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
+	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cnpg-cluster-postgresql.yml
+	@echo "-- Waiting for cluster $(postgresqlInstance) to be ready"
+	@kubectl get pods -n $(namespace) -l cnpg.io/cluster=postgresql-testing > /dev/null || (echo "  waiting pod creation" && sleep 20s)
+	@echo "  waiting pod availibility" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance)
 
 install_monitoring :
-ifeq ($(minikube), true)
-  ifeq ($(with_monitoring), true)
-	echo "Monitoring is for later"
+ifeq ($(with_monitoring), true)
+	@echo "-- Install monitoring"
+  ifeq ($(minikube), true)
+	@echo "   Monitoring not yet ready, coming soon"
   endif
 endif
 
 info : status
-	@echo
-	@echo The configuration for your chart is there with sensitive data:
-	@echo   $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
 	@echo
 	@echo You can now set your env:
 	@echo  export KUBECONFIG="$(kubeconfig)"
 
 status :
 ifeq ($(minikube), true)
+	@echo "-- Minikube status"
 	@minikube status -p $(k8scluster) -l cluster
 else
 	@echo This operation is for minikube driver only !
@@ -139,15 +146,18 @@ endif
 
 stop :
 ifeq ($(minikube), true)
+	@echo "-- Stopping Minikube cluster"
 	-@minikube stop -p $(k8scluster)
+	@rm -f $(minikubePersistantPath)/postgresql/*.flag
 else
 	@echo This operation is for minikube driver only !
 endif
 
 deleteCluster :
 ifeq ($(minikube), true)
+	@echo "-- Deleting Minikube cluster"
 	-@minikube delete -p $(k8scluster)
-	@rm -f $(minikubePersistantPath)/postgresql/flag-cnpg.tmp
+	@rm -f $(minikubePersistantPath)/postgresql/*.flag
 endif
 
 mrproper: deleteCluster
@@ -166,15 +176,18 @@ deleteProfile : deleteCluster
 	-rm -Rf $(minikubePersistantPath)
 
 client :
+	@echo "-- Creating client pod and resources"
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cm-postgresql-client.yml
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-client.yml
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-client.yml
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml
 	@kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) $(postgresqlInstance)-client
+	@echo "-- Connecting client pod"
 	@kubectl exec -n $(namespace) -it $(postgresqlInstance)-client -- /bin/bash
 
 dashboard:
 ifeq ($(minikube), true)
+	@echo "-- Launching Minikube dashboard"
 	@minikube dashboard -p $(k8scluster)
 else
 	@echo This operation is for minikube driver only !
