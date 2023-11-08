@@ -13,7 +13,7 @@ data:
     ----------------------------------------------------------------
       You can now use PostgreSQL tools as:
        - psql
-       - pgdump / pgrestore
+       - pg_dump / pg_restore
       
       case minikube, share files with this pod using on your laptop:
         cp path/to/file ${KSSHAREDSPACE}/psql/file
