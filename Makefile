@@ -120,8 +120,8 @@ install_postgresql :
 	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 	@echo "-- Waiting for cluster $(postgresqlInstance) to be ready"
-	@kubectl get pods -n $(namespace) -l cnpg.io/cluster=postgresql-testing > /dev/null || (echo "  waiting pod creation" && sleep 20s)
-	@echo "  waiting pod availibility" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance)
+	-@kubectl get pods -n $(namespace) -l cnpg.io/cluster=postgresql-testing -l cnpg.io/instanceRole=primary 2>&1 | grep -q "No resources found" && echo "  waiting pod creation" && sleep 20s
+	-@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 
 install_monitoring :
 ifeq ($(with_monitoring), true)
