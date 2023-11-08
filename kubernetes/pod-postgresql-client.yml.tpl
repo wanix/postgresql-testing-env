@@ -7,9 +7,9 @@ metadata:
   name: ${PGINSTANCENAME}-client
 spec:
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
-    fsGroup: 1000
+    runAsUser: ${PGUSERUID}
+    runAsGroup: ${PGUSERGID}
+    fsGroup: ${PGUSERGID}
     runAsNonRoot: true
   volumes:
     - name: config-files
@@ -20,7 +20,7 @@ spec:
         claimName: pvc-pgsql-${PGINSTANCENAME}
   containers:
     - name: postgresql-client
-      image: bitnami/postgresql:${PGVERSION}
+      image: ${PGCONTAINERIMAGE}
       imagePullPolicy: IfNotPresent
       command:
         - /bin/bash
@@ -31,14 +31,38 @@ spec:
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: ${PGINSTANCENAME}
-              key: postgres-password
+              name: ${PGINSTANCENAME}-app
+              key: password
         - name: PGUSER
-          value: postgres
+          valueFrom:
+            secretKeyRef:
+              name: ${PGINSTANCENAME}-app
+              key: username
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: ${PGINSTANCENAME}-app
+              key: dbname
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: ${PGINSTANCENAME}-app
+              key: host
+        - name: PGPOST
+          valueFrom:
+            secretKeyRef:
+              name: ${PGINSTANCENAME}-app
+              key: port
       volumeMounts:
         - name: config-files
           mountPath: /.psqlrc
           subPath: psqlrc
+        - name: config-files
+          mountPath: /etc/motd
+          subPath: motd
+        - name: config-files
+          mountPath: /.bashrc
+          subPath: bashrc
         - name: psql-storage
           mountPath: /pgsql
       resources:

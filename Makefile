@@ -14,15 +14,14 @@ kubeversion=$(shell grep "kubectl " .tool-versions | cut -d " " -f 2)
 namespace=default
 with_monitoring=true
 
+cnpgVersion=1.21.1
+
 postgresqlInstance=postgresql-testing
-postgresqlVersion=16.0.0
-postgresqlMainPassword=$(shell openssl rand -base64 64 | tr -d '\n' | xargs echo)
-postgresqlUser=testuser
-postgresqlPassword=$(shell openssl rand -base64 64 | tr -d '\n' | xargs echo)
-postgresqlDb=testdb
+postgresqlVersion=16.0
+postgresqlExtension=hypopg-hll-cron
 postgresqlDiskSize=20Gi
-
-
+postgresqlNodes=1
+postgresqlImage=ghcr.io/wanix/postgresql:$(postgresqlVersion)-$(postgresqlExtension)
 
 minikube=true
 minikubeResources=--memory 8192 --cpus 4
@@ -41,6 +40,8 @@ kubeMountPath=/tmp/hostpath_pv_data/$(postgresqlInstance)
 
 export KUBECONFIG := $(kubeconfig)
 export KUBEMOUNTPATH := $(kubeMountPath)
+export KSNAMESPACE := $(namespace)
+export KSSHAREDSPACE := $(minikubePersistantPath)
 
 export PGVERSION := $(postgresqlVersion)
 export PGINSTANCENAME := $(postgresqlInstance)
@@ -49,6 +50,12 @@ export PGUSERNAME := $(postgresqlUser)
 export PGUSERPASSWORD := $(postgresqlPassword)
 export PGMAINDB := $(postgresqlDb)
 export PGDISKSIZE := $(postgresqlDiskSize)
+export PGINSTANCESNUMBER := $(postgresqlNodes)
+
+export PGCONTAINERIMAGE := $(postgresqlImage)
+
+export PGUSERUID := $(shell id -u)
+export PGUSERGID := $(shell id -g)
 
 
 asdf-install :
@@ -60,10 +67,7 @@ asdf-install :
 
 configure:
 	@test -d $(minikubePersistantPath) || mkdir -p $(minikubePersistantPath)/postgresql \
-											$(minikubePersistantPath)/psql \
-											$(minikubePersistantPath)/pgwatch2/pg \
-											$(minikubePersistantPath)/pgwatch2/grafana \
-											$(minikubePersistantPath)/pgwatch2/config
+											$(minikubePersistantPath)/psql
 	@test -d $(generated_k8s_path) || mkdir -p $(generated_k8s_path)
 	@test -d $(generated_cfg_path) || mkdir -p $(generated_cfg_path)
 
@@ -73,20 +77,15 @@ configure:
 	@cat kubernetes/pvc-postgresql-client.yml.tpl | envsubst > $(generated_k8s_path)/pvc-postgresql-client.yml
 
 	@cat kubernetes/pv-postgresql-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-data.yml
-	@cat kubernetes/pvc-postgresql-data.yml.tpl | envsubst > $(generated_k8s_path)/pvc-postgresql-data.yml
+	@for i in $(shell seq -w 1 $(postgresqlNodes)); do \
+	    mkdir -p $(minikubePersistantPath)/postgresql/data-node-$$i; \
+		chmod 777 $(minikubePersistantPath)/postgresql/data-node-$$i; \
+		export PGNODE=$$i; \
+		cat kubernetes/pv-postgresql-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
+	done
+	@cat kubernetes/cnpg-cluster-postgresql.yml.tpl  | envsubst > $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 
-	@cat kubernetes/pv-pgwatch2-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-pgwatch2-data.yml
-	@cat kubernetes/pvc-pgwatch2-data.yml.tpl | envsubst > $(generated_k8s_path)/pvc-pgwatch2-data.yml
-
-ifeq ("$(wildcard $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml)","")
-    #File not exists
-	@envsubst < cfg/helm-conf.yaml.tpl > $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
-	@chmod 600 $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
-endif
-
-
-
-start : configure start_minikube install_postgresql install_monitoring info
+start : configure start_minikube install_cloudnative_pg install_monitoring install_postgresql info
 
 start_minikube :
 ifeq ($(minikube), true)
@@ -104,24 +103,24 @@ ifeq ($(minikube), true)
   endif
 endif
 
-install_postgresql :
-	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data.yml
-	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-data.yml
+install_cloudnative_pg :
+	@kubectl apply -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v$(cnpgVersion)/releases/cnpg-$(cnpgVersion).yaml
+	@kubectl wait pod --timeout 120s --for=condition=Ready -n cnpg-system -l app.kubernetes.io/name=cloudnative-pg
+	@test -f $(minikubePersistantPath)/postgresql/flag-cnpg.tmp || (sleep 10s && touch $(minikubePersistantPath)/postgresql/flag-cnpg.tmp)
 
-	@helm list -n $(namespace) | egrep -q '^$(postgresqlInstance)\s' \
-		|| helm install -n $(namespace) $(postgresqlInstance) oci://registry-1.docker.io/bitnamicharts/postgresql \
-			-f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml \
-		&& helm upgrade -n $(namespace) $(postgresqlInstance) oci://registry-1.docker.io/bitnamicharts/postgresql \
-			-f $(generated_cfg_path)/helm-conf--$(postgresqlInstance).yml
+install_postgresql :
+	@for i in $(shell seq -w 1 $(postgresqlNodes)); do \
+	    export PGNODE=$$i; \
+		kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
+	done
+	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 
 install_monitoring :
 ifeq ($(minikube), true)
   ifeq ($(with_monitoring), true)
-	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-pgwatch2-data.yml
-	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-pgwatch2-data.yml
+	echo "Monitoring is for later"
   endif
 endif
-
 
 info : status
 	@echo
@@ -148,6 +147,7 @@ endif
 deleteCluster :
 ifeq ($(minikube), true)
 	-@minikube delete -p $(k8scluster)
+	@rm -f $(minikubePersistantPath)/postgresql/flag-cnpg.tmp
 endif
 
 mrproper: deleteCluster
@@ -166,13 +166,12 @@ deleteProfile : deleteCluster
 	-rm -Rf $(minikubePersistantPath)
 
 client :
-	kubectl apply -n $(namespace) -f $(generated_k8s_path)/cm-postgresql-client.yml
-	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-client.yml
-	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-client.yml
-	kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml
-	@sleep 2s
-	@kubectl exec -n $(namespace) -it $(postgresqlInstance)-client -- \
-	  psql -h postgresql-testing.$(namespace).svc.cluster.local -U postgres -d $(postgresqlDb)
+	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cm-postgresql-client.yml
+	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-client.yml
+	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-client.yml
+	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml
+	@kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) $(postgresqlInstance)-client
+	@kubectl exec -n $(namespace) -it $(postgresqlInstance)-client -- /bin/bash
 
 dashboard:
 ifeq ($(minikube), true)
