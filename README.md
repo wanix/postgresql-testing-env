@@ -6,7 +6,7 @@ As prerequisite, you need [asdf](https://asdf-vm.com/) installed, up-to-date (`a
 
 Then all needed plugins installed also (`cat .tool-versions | egrep -v "^ *#" | cut -d ' ' -f 1 | xargs -L 1 echo asdf plugin-add`).
 
-And finally, all awaited version installed: `asdf install`
+And finally, all awaited versions installed: `asdf install`
 
 ## Quickstart
 
@@ -18,7 +18,7 @@ make client
 To stop temporarly the cluster:
 
 ```bash
-make deleteCluster
+make stop
 ```
 
 To delete the cluster but keep the configuration for next start:

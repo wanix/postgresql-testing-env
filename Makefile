@@ -120,8 +120,8 @@ install_postgresql :
 	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 	@echo "-- Waiting for cluster $(postgresqlInstance) to be ready"
-	@kubectl get pods -n $(namespace) -l cnpg.io/cluster=postgresql-testing > /dev/null || (echo "  waiting pod creation" && sleep 20s)
-	@echo "  waiting pod availibility" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance)
+	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance) -l cnpg.io/instanceRole=primary
+	@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 
 install_monitoring :
 ifeq ($(with_monitoring), true)
@@ -181,6 +181,7 @@ client :
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-client.yml
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pvc-postgresql-client.yml
 	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-postgresql-client.yml
+	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting for $(postgresqlInstance)-client' -n $(namespace) $(postgresqlInstance)-client
 	@kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) $(postgresqlInstance)-client
 	@echo "-- Connecting client pod"
 	@kubectl exec -n $(namespace) -it $(postgresqlInstance)-client -- /bin/bash
