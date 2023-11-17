@@ -20,6 +20,9 @@ spec:
           storage: ${PGDISKSIZE}
       storageClassName: manual
 
+  monitoring:
+    enablePodMonitor: ${PGPROMMONITORING}
+
   resources:
     requests:
       memory: "2Gi"
