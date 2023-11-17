@@ -34,6 +34,8 @@ generated_k8s_path=generated/k8s/$(k8scluster).d/$(postgresqlInstance)
 generated_cfg_path=generated/cfg/$(k8scluster).d/$(postgresqlInstance)
 kubeMountPath=/tmp/hostpath_pv_data/$(postgresqlInstance)
 
+grafana_port=8080
+
 #######################
 # Makefile operations #
 #######################
@@ -53,6 +55,7 @@ export PGDISKSIZE := $(postgresqlDiskSize)
 export PGINSTANCESNUMBER := $(postgresqlNodes)
 
 export PGCONTAINERIMAGE := $(postgresqlImage)
+export PGPROMMONITORING := $(with_monitoring)
 
 export PGUSERUID := $(shell id -u)
 export PGUSERGID := $(shell id -g)
@@ -86,7 +89,7 @@ configure:
 	done
 	@cat kubernetes/cnpg-cluster-postgresql.yml.tpl  | envsubst > $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 
-start : configure start_minikube install_cloudnative_pg install_monitoring install_postgresql info
+start : configure start_minikube install_cloudnative_pg install_monitoring install_postgresql forward_grafana info
 
 start_minikube :
 ifeq ($(minikube), true)
@@ -127,7 +130,37 @@ install_monitoring :
 ifeq ($(with_monitoring), true)
 	@echo "-- Install monitoring"
   ifeq ($(minikube), true)
-	@echo "   Monitoring not yet ready, coming soon"
+	@kubectl get ns monitoring 2>&1 >/dev/null || kubectl create ns monitoring
+	@helm repo list | grep -q ^prometheus-community || helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+	@helm upgrade --install -n monitoring \
+		-f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v$(cnpgVersion)/docs/src/samples/monitoring/kube-stack-config.yaml \
+		prometheus-community \
+		prometheus-community/kube-prometheus-stack
+	@kubectl apply -n monitoring -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v$(cnpgVersion)/docs/src/samples/monitoring/grafana-configmap.yaml
+  endif
+endif
+
+forward_grafana :
+ifeq ($(with_monitoring), true)
+  ifeq ($(minikube), true)
+	@echo "-- Waiting Grafana to be available"
+	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n monitoring -l app.kubernetes.io/instance=prometheus-community -l app.kubernetes.io/name=grafana
+	@echo "  waiting grafana availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n monitoring -l app.kubernetes.io/instance=prometheus-community -l app.kubernetes.io/name=grafana
+	@test $(shell ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80" | grep -vc grep) -eq 0 \
+	  && echo "-- Forwarding Grafana" \
+	  && nohup kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80&
+  endif
+endif
+
+stop_forward_grafana :
+ifeq ($(minikube), true)
+  ifeq ($(with_monitoring), true)
+	@test $(shell ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80" | grep -vc grep) -gt 0 \
+		&& echo "-- Stopping Grafana port-forward" \
+		&& ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80" \
+		 | grep -v grep | sed 's/\s\+/ /g' | cut -d ' ' -f 2 | xargs kill 2> /dev/null \
+		|| true
+	@rm -f nohup.out
   endif
 endif
 
@@ -135,6 +168,13 @@ info : status
 	@echo
 	@echo You can now set your env:
 	@echo  export KUBECONFIG="$(kubeconfig)"
+ifeq ($(with_monitoring), true)
+  ifeq ($(minikube), true)
+	@echo "-- grafana credentials:"
+	@echo "  $(shell kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-user}' | base64 -d)  //  $(shell kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-password}' | base64 -d)"
+	@echo "  grafana URL: http://localhost:$(grafana_port)/d/cloudnative-pg/cloudnativepg?orgId=1&refresh=30s"
+  endif
+endif
 
 status :
 ifeq ($(minikube), true)
@@ -144,7 +184,7 @@ else
 	@echo This operation is for minikube driver only !
 endif
 
-stop :
+stop : stop_forward_grafana
 ifeq ($(minikube), true)
 	@echo "-- Stopping Minikube cluster"
 	-@minikube stop -p $(k8scluster)
@@ -153,7 +193,7 @@ else
 	@echo This operation is for minikube driver only !
 endif
 
-deleteCluster :
+deleteCluster : stop_forward_grafana
 ifeq ($(minikube), true)
 	@echo "-- Deleting Minikube cluster"
 	-@minikube delete -p $(k8scluster)
@@ -165,6 +205,7 @@ mrproper: deleteCluster
 	rm -Rf persistentVolumesData/*.d
 	rm -Rf generated/k8s/*.d
 	rm -Rf generated/cfg/*.d
+	rm nohup.out
 
 deleteProfile : deleteCluster
 	rm -f $(generated_k8s_path)/*.yml
