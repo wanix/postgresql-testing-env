@@ -12,6 +12,7 @@ k8scluster=pg-test
 kubeconfig=${PWD}/generated/k8s/$(k8scluster).kubeconfig
 kubeversion=$(shell grep "kubectl " .tool-versions | cut -d " " -f 2)
 namespace=pg-test
+install_prometheus=true
 with_monitoring=true
 
 # https://github.com/cloudnative-pg/cloudnative-pg/tags
@@ -153,17 +154,17 @@ install_postgresql_cluster :
 	@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 
 install_monitoring :
-ifeq ($(with_monitoring), true)
+ifeq ($(install_prometheus), true)
 	@echo "-- Install monitoring"
   ifeq ($(minikube), true)
 	@kubectl get ns monitoring 2>&1 >/dev/null || kubectl create ns monitoring
 	@helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-	@helm upgrade --install -n monitoring prometheus-community prometheus-community/kube-prometheus-stack
+	@helm upgrade --install prometheus-community --namespace monitoring -f kubernetes/helm-prometheus-community-kube-prometheus-stack.yml prometheus-community/kube-prometheus-stack
   endif
 endif
 
 forward_grafana :
-ifeq ($(with_monitoring), true)
+ifeq ($(install_prometheus), true)
   ifeq ($(minikube), true)
 	@echo "-- Waiting Grafana to be available"
 	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n monitoring -l app.kubernetes.io/instance=prometheus-community -l app.kubernetes.io/name=grafana
@@ -176,7 +177,7 @@ endif
 
 stop_forward_grafana :
 ifeq ($(minikube), true)
-  ifeq ($(with_monitoring), true)
+  ifeq ($(install_prometheus), true)
 	@test $(shell ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80" | grep -vc grep) -gt 0 \
 		&& echo "-- Stopping Grafana port-forward" \
 		&& ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80" \
@@ -190,7 +191,7 @@ info : status
 	@echo
 	@echo You can now set your env:
 	@echo  export KUBECONFIG="$(kubeconfig)"
-ifeq ($(with_monitoring), true)
+ifeq ($(install_prometheus), true)
   ifeq ($(minikube), true)
 	$(eval grafana_user := $(shell export KUBECONFIG="$(kubeconfig)"; kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-user}' | base64 -d))
 	$(eval grafana_pass := $(shell export KUBECONFIG="$(kubeconfig)"; kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-password}' | base64 -d))

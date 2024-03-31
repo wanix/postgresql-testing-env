@@ -1,4 +1,8 @@
 ---
+#####################################################################
+# https://github.com/cloudnative-pg/charts/tree/main/charts/cluster
+#####################################################################
+
 # -- Override the name of the chart
 nameOverride: "pg-cluster-${PGINSTANCENAME}"
 # -- Override the full name of the chart
