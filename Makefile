@@ -100,7 +100,6 @@ configure:
 		export PGNODE=$$i; \
 		cat kubernetes/pv-postgresql-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
-	@cat kubernetes/cnpg-cluster-postgresql.yml.tpl  | envsubst > $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 
 	@cat kubernetes/helm-cnpg-operator.yml.tpl | envsubst > $(generated_helm_values_path)/helm-cnpg-operator.yml
 	@cat kubernetes/helm-cnpg-cluster.yml.tpl | envsubst > $(generated_helm_values_path)/helm-cnpg-cluster.yml
@@ -143,7 +142,6 @@ install_cloudnative_pg :
 
 install_postgresql_cluster :
 	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
-	#@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 	@helm upgrade --install cnpg --namespace $(namespace) --create-namespace  --version "$(cnpgClusterChartVersion)"  -f $(generated_helm_values_path)/helm-cnpg-cluster.yml cnpg/cluster
 	@echo "-- Creating PostgreSQL Cluster PVs"
 	@for i in $(shell seq -w 1 $(postgresqlNodes)); do \
@@ -151,8 +149,8 @@ install_postgresql_cluster :
 		kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
 	@echo "-- Waiting for cluster $(namespace) to be ready"
-	#@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance) -l cnpg.io/instanceRole=primary
-	#@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance) -l cnpg.io/instanceRole=primary
+	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
+	@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 
 install_monitoring :
 ifeq ($(with_monitoring), true)
@@ -228,10 +226,10 @@ endif
 
 mrproper: deleteCluster
 	rm -f cfg/helm-conf--*.yml
-	rm -Rf persistentVolumesData/*.d
 	rm -Rf generated/k8s/*.d
 	rm -Rf generated/cfg/*.d
 	rm -f nohup.out
+	rm -Rf persistentVolumesData/*.d
 
 deleteProfile : deleteCluster
 	rm -f $(generated_k8s_path)/*.yml
