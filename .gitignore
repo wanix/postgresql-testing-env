@@ -5,6 +5,7 @@ postgresql-testing-env.kubeconfig
 generated/k8s/*.d/
 generated/k8s/*.kubeconfig
 generated/cfg/*.d/
+generated/helm-values/*.d/
 
 # Default local dir for persistant volumes
 persistentVolumesData/*.d/**
