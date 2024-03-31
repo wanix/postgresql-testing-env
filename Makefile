@@ -8,29 +8,39 @@
 # Default Configuration #
 #########################
 
-k8scluster=k8s-postgresql-testing-env
+k8scluster=pg-test
 kubeconfig=${PWD}/generated/k8s/$(k8scluster).kubeconfig
 kubeversion=$(shell grep "kubectl " .tool-versions | cut -d " " -f 2)
-namespace=default
+namespace=pg-test
+install_prometheus=true
 with_monitoring=true
 
-cnpgVersion=1.21.1
+# https://github.com/cloudnative-pg/cloudnative-pg/tags
+cnpgVersion=1.22.2
+
+# https://github.com/cloudnative-pg/charts/tree/main/charts/cloudnative-pg
+cnpgOperatorChartVersion=0.20.2  # OperatorVersion=1.22.2
+cnpgClusterChartVersion=0.0.5
 
 postgresqlInstance=postgresql-testing
-postgresqlVersion=16.0
+postgresqlVersion=16.2
 postgresqlExtension=hypopg-hll-cron
 postgresqlDiskSize=20Gi
-postgresqlNodes=1
+postgresqlNodes=3
+postgresqlNodeMem=4Gi
+postgresqlNodeCpu=2000m
 postgresqlImage=ghcr.io/wanix/postgresql:$(postgresqlVersion)-$(postgresqlExtension)
 
 minikube=true
-minikubeResources=--memory 8192 --cpus 4
+minikubeResources=--memory 6144 --cpus 4
+storage_class=manual
 # https://minikube.sigs.k8s.io/docs/drivers/
 minikubeDriver=docker
 minikubePersistantPath=${PWD}/persistentVolumesData/$(k8scluster).d/$(postgresqlInstance)
-minikubeNodes=2
+minikubeNodes=3
 
 generated_k8s_path=generated/k8s/$(k8scluster).d/$(postgresqlInstance)
+generated_helm_values_path=generated/helm-values/$(k8scluster).d/$(postgresqlInstance)
 generated_cfg_path=generated/cfg/$(k8scluster).d/$(postgresqlInstance)
 kubeMountPath=/tmp/hostpath_pv_data/$(postgresqlInstance)
 
@@ -53,6 +63,9 @@ export PGUSERPASSWORD := $(postgresqlPassword)
 export PGMAINDB := $(postgresqlDb)
 export PGDISKSIZE := $(postgresqlDiskSize)
 export PGINSTANCESNUMBER := $(postgresqlNodes)
+export PGINSTANCEMEM := $(postgresqlNodeMem)
+export PGINSTANCECPU := $(postgresqlNodeCpu)
+export PGSTORAGECLASS := $(storage_class)
 
 export PGCONTAINERIMAGE := $(postgresqlImage)
 export PGPROMMONITORING := $(with_monitoring)
@@ -73,6 +86,7 @@ configure:
 	@test -d $(minikubePersistantPath) || mkdir -p $(minikubePersistantPath)/postgresql \
 											$(minikubePersistantPath)/psql
 	@test -d $(generated_k8s_path) || mkdir -p $(generated_k8s_path)
+	@test -d $(generated_helm_values_path) || mkdir -p $(generated_helm_values_path)
 	@test -d $(generated_cfg_path) || mkdir -p $(generated_cfg_path)
 
 	@cat kubernetes/cm-postgresql-client.yml.tpl  | envsubst > $(generated_k8s_path)/cm-postgresql-client.yml
@@ -87,9 +101,17 @@ configure:
 		export PGNODE=$$i; \
 		cat kubernetes/pv-postgresql-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
-	@cat kubernetes/cnpg-cluster-postgresql.yml.tpl  | envsubst > $(generated_k8s_path)/cnpg-cluster-postgresql.yml
 
-start : configure start_minikube install_cloudnative_pg install_monitoring install_postgresql forward_grafana info
+	@cat kubernetes/helm-cnpg-operator.yml.tpl | envsubst > $(generated_helm_values_path)/helm-cnpg-operator.yml
+	@cat kubernetes/helm-cnpg-cluster.yml.tpl | envsubst > $(generated_helm_values_path)/helm-cnpg-cluster.yml
+
+start : configure \
+	start_minikube \
+	install_monitoring \
+	install_cloudnative_pg_helm_chart_repo \
+	install_cloudnative_pg \
+	install_postgresql_cluster \
+	forward_grafana info
 
 start_minikube :
 ifeq ($(minikube), true)
@@ -108,40 +130,41 @@ ifeq ($(minikube), true)
   endif
 endif
 
+install_cloudnative_pg_helm_chart_repo :
+	@echo "-- installing helm chart repo"
+	@helm repo add cnpg https://cloudnative-pg.github.io/charts
+	@helm repo update cnpg
+
 install_cloudnative_pg :
 	@echo "-- Installing cloudnative-pg operator"
-	@kubectl apply -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v$(cnpgVersion)/releases/cnpg-$(cnpgVersion).yaml
+	@helm upgrade --install cnpg --namespace cnpg-system --create-namespace  --version "$(cnpgOperatorChartVersion)" -f $(generated_helm_values_path)/helm-cnpg-operator.yml cnpg/cloudnative-pg
 	@kubectl wait pod --timeout 120s --for=condition=Ready -n cnpg-system -l app.kubernetes.io/name=cloudnative-pg
 	@test -f $(minikubePersistantPath)/postgresql/flag-cnpg.flag || (sleep 10s && touch $(minikubePersistantPath)/postgresql/flag-cnpg.flag)
 
-install_postgresql :
+install_postgresql_cluster :
+	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
+	@helm upgrade --install cnpg --namespace $(namespace) --create-namespace  --version "$(cnpgClusterChartVersion)"  -f $(generated_helm_values_path)/helm-cnpg-cluster.yml cnpg/cluster
 	@echo "-- Creating PostgreSQL Cluster PVs"
 	@for i in $(shell seq -w 1 $(postgresqlNodes)); do \
 	    export PGNODE=$$i; \
 		kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
-	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
-	@kubectl apply -n $(namespace) -f $(generated_k8s_path)/cnpg-cluster-postgresql.yml
-	@echo "-- Waiting for cluster $(postgresqlInstance) to be ready"
-	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance) -l cnpg.io/instanceRole=primary
-	@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=$(postgresqlInstance) -l cnpg.io/instanceRole=primary
+	@echo "-- Waiting for cluster $(namespace) to be ready"
+	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
+	@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 
 install_monitoring :
-ifeq ($(with_monitoring), true)
+ifeq ($(install_prometheus), true)
 	@echo "-- Install monitoring"
   ifeq ($(minikube), true)
 	@kubectl get ns monitoring 2>&1 >/dev/null || kubectl create ns monitoring
-	@helm repo list | grep -q ^prometheus-community || helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-	@helm upgrade --install -n monitoring \
-		-f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v$(cnpgVersion)/docs/src/samples/monitoring/kube-stack-config.yaml \
-		prometheus-community \
-		prometheus-community/kube-prometheus-stack
-	@kubectl apply -n monitoring -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v$(cnpgVersion)/docs/src/samples/monitoring/grafana-configmap.yaml
+	@helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+	@helm upgrade --install prometheus-community --namespace monitoring -f kubernetes/helm-prometheus-community-kube-prometheus-stack.yml prometheus-community/kube-prometheus-stack
   endif
 endif
 
 forward_grafana :
-ifeq ($(with_monitoring), true)
+ifeq ($(install_prometheus), true)
   ifeq ($(minikube), true)
 	@echo "-- Waiting Grafana to be available"
 	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n monitoring -l app.kubernetes.io/instance=prometheus-community -l app.kubernetes.io/name=grafana
@@ -154,7 +177,7 @@ endif
 
 stop_forward_grafana :
 ifeq ($(minikube), true)
-  ifeq ($(with_monitoring), true)
+  ifeq ($(install_prometheus), true)
 	@test $(shell ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80" | grep -vc grep) -gt 0 \
 		&& echo "-- Stopping Grafana port-forward" \
 		&& ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana $(grafana_port):80" \
@@ -168,10 +191,12 @@ info : status
 	@echo
 	@echo You can now set your env:
 	@echo  export KUBECONFIG="$(kubeconfig)"
-ifeq ($(with_monitoring), true)
+ifeq ($(install_prometheus), true)
   ifeq ($(minikube), true)
+	$(eval grafana_user := $(shell export KUBECONFIG="$(kubeconfig)"; kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-user}' | base64 -d))
+	$(eval grafana_pass := $(shell export KUBECONFIG="$(kubeconfig)"; kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-password}' | base64 -d))
 	@echo "-- grafana credentials:"
-	@echo "  $(shell kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-user}' | base64 -d)  //  $(shell kubectl get secret -n monitoring prometheus-community-grafana -o jsonpath='{.data.admin-password}' | base64 -d)"
+	@echo "  $(grafana_user) // $(grafana_pass)"
 	@echo "  grafana URL: http://localhost:$(grafana_port)/d/cloudnative-pg/cloudnativepg?orgId=1&refresh=30s"
   endif
 endif
@@ -202,14 +227,17 @@ endif
 
 mrproper: deleteCluster
 	rm -f cfg/helm-conf--*.yml
-	rm -Rf persistentVolumesData/*.d
 	rm -Rf generated/k8s/*.d
 	rm -Rf generated/cfg/*.d
-	rm nohup.out
+	rm -f nohup.out
+	rm -Rf persistentVolumesData/*.d
 
 deleteProfile : deleteCluster
 	rm -f $(generated_k8s_path)/*.yml
 	-rmdir $(generated_k8s_path)
+
+	rm -f $(generated_helm_values_path)/*.yml
+	-rmdir $(generated_helm_values_path)
 
 	rm -f $(generated_cfg_path)/*.yml
 	-rmdir $(generated_cfg_path)
