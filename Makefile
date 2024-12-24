@@ -149,7 +149,7 @@ install_postgresql_cluster :
 		kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
 	@echo "-- Waiting for cluster $(namespace) to be ready"
-	@./helpers/wait_for_pods_to_exist.sh 5 60 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
+	@./helpers/wait_for_pods_to_exist.sh 5 300 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 	@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 
 install_monitoring :
