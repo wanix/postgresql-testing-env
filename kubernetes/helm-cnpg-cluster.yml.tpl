@@ -262,28 +262,17 @@ backups:
   # -- Retention policy for backups
   retentionPolicy: "30d"
 
-
-pooler:
-  # -- Whether to enable PgBouncer
-  enabled: false
-  # -- PgBouncer type of service to forward traffic to.
-  type: rw
-  # -- PgBouncer pooling mode
-  poolMode: transaction
-  # -- Number of PgBouncer instances
-  instances: 3
-  # -- PgBouncer configuration parameters
-  parameters:
-    max_client_conn: "1000"
-    default_pool_size: "25"
-
-  monitoring:
-    # -- Whether to enable monitoring
-    enabled: true
-    podMonitor:
-        # -- Whether to enable the PodMonitor
+poolers:
+  - name: rw                   # Lower case alphanumeric characters or '-' or '.'
+    enabled: false             # Whether to enable PgBouncer
+    type: rw                   # PgBouncer type of service to forward traffic to.
+    poolMode: transaction      # PgBouncer pooling mode
+    instances: 3               # Number of PgBouncer instances
+    parameters:                # PgBouncer configuration parameters
+      max_client_conn: "1000"
+      default_pool_size: "25"
+    monitoring:                # Whether to enable monitoring
       enabled: true
-
-  # -- Custom PgBouncer deployment template.
-  # Use to override image, specify resources, etc.
-  template: {}
+      podMonitor:              # Whether to enable the PodMonitor
+        enabled: true
+    template: {}               # Custom PgBouncer deployment template. Use to override image, specify resources, etc.
