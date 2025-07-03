@@ -31,27 +31,27 @@ spec:
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: ${PGINSTANCENAME}-app
+              name: pg-cluster-${PGINSTANCENAME}-app
               key: password
         - name: PGUSER
           valueFrom:
             secretKeyRef:
-              name: ${PGINSTANCENAME}-app
+              name: pg-cluster-${PGINSTANCENAME}-app
               key: username
         - name: PGDATABASE
           valueFrom:
             secretKeyRef:
-              name: ${PGINSTANCENAME}-app
+              name: pg-cluster-${PGINSTANCENAME}-app
               key: dbname
         - name: PGHOST
           valueFrom:
             secretKeyRef:
-              name: ${PGINSTANCENAME}-app
+              name: pg-cluster-${PGINSTANCENAME}-app
               key: host
         - name: PGPOST
           valueFrom:
             secretKeyRef:
-              name: ${PGINSTANCENAME}-app
+              name: pg-cluster-${PGINSTANCENAME}-app
               key: port
       volumeMounts:
         - name: config-files

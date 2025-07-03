@@ -16,13 +16,13 @@ install_prometheus=true
 with_monitoring=true
 
 # https://github.com/cloudnative-pg/cloudnative-pg/tags
-cnpgVersion=1.25.0
+cnpgVersion=1.26.0
 
-cnpgOperatorChartVersion=0.23.0  # OperatorVersion=1.25.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
-cnpgClusterChartVersion=0.1.3 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
+cnpgOperatorChartVersion=0.24.0  # OperatorVersion=1.25.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
+cnpgClusterChartVersion=0.3.1 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
 
 postgresqlInstance=postgresql-testing
-postgresqlVersion=17.2
+postgresqlVersion=17.5
 postgresqlExtension=hypopg-hll-cron
 postgresqlDiskSize=20Gi
 postgresqlNodes=3
