@@ -16,18 +16,18 @@ install_prometheus=true
 with_monitoring=true
 
 # https://github.com/cloudnative-pg/cloudnative-pg/tags
-cnpgVersion=1.27.0
+cnpgVersion=1.28.0
 
-cnpgOperatorChartVersion=0.26.0  # OperatorVersion=1.25.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
-cnpgClusterChartVersion=0.3.1 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
+cnpgOperatorChartVersion=0.27.0  # OperatorVersion=1.25.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
+cnpgClusterChartVersion=0.5.0 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
 
 postgresqlInstance=postgresql-testing
-postgresqlVersion=17.6
+postgresqlVersion=18.1
 # postgresqlExtension=hypopg-hll-cron
-postgresqlDiskSize=20Gi
+postgresqlDiskSize=50Gi
 postgresqlNodes=3
-postgresqlNodeMem=4Gi
-postgresqlNodeCpu=2000m
+postgresqlNodeMem=2Gi
+postgresqlNodeCpu=1000m
 # postgresqlImage=ghcr.io/wanix/postgresql:$(postgresqlVersion)-$(postgresqlExtension)
 postgresqlImage=ghcr.io/cloudnative-pg/postgresql:$(postgresqlVersion)
 
@@ -114,15 +114,8 @@ start : configure \
 start_minikube :
 ifeq ($(minikube), true)
 	@echo "-- Starting Minikube"
-  ifeq ($(minikubeDriver), podman)
-	@minikube config set rootless true
-	@minikube start -p $(k8scluster) $(minikubeResources) \
-	  --kubernetes-version=$(kubeversion) \
-	  --driver=$(minikubeDriver) \
-	  --nodes $(minikubeNodes) \
-	  --mount --mount-string $(minikubePersistantPath):$(kubeMountPath)
-  else ifeq ($(minikubeDriver), docker)
-    @minikube config set rootless false
+  ifeq ($(minikubeDriver), $(filter $(minikubeDriver), podman docker))
+	@minikube config set rootless false
 	@minikube start -p $(k8scluster) $(minikubeResources) \
 	  --kubernetes-version=$(kubeversion) \
 	  --driver=$(minikubeDriver) \
