@@ -1,4 +1,4 @@
-.PHONY : asdf-install \
+.PHONY : mise-install \
 	configure start stop info \
 	deleteCluster deleteProfile mrproper \
 	client \
@@ -16,25 +16,26 @@ install_prometheus=true
 with_monitoring=true
 
 # https://github.com/cloudnative-pg/cloudnative-pg/tags
-cnpgVersion=1.26.0
+cnpgVersion=1.28.0
 
-cnpgOperatorChartVersion=0.24.0  # OperatorVersion=1.25.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
-cnpgClusterChartVersion=0.3.1 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
+cnpgOperatorChartVersion=0.27.0  # OperatorVersion=1.25.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
+cnpgClusterChartVersion=0.5.0 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
 
 postgresqlInstance=postgresql-testing
-postgresqlVersion=17.5
-postgresqlExtension=hypopg-hll-cron
-postgresqlDiskSize=20Gi
+postgresqlVersion=18.1
+# postgresqlExtension=hypopg-hll-cron
+postgresqlDiskSize=50Gi
 postgresqlNodes=3
-postgresqlNodeMem=4Gi
-postgresqlNodeCpu=2000m
-postgresqlImage=ghcr.io/wanix/postgresql:$(postgresqlVersion)-$(postgresqlExtension)
+postgresqlNodeMem=2Gi
+postgresqlNodeCpu=1000m
+# postgresqlImage=ghcr.io/wanix/postgresql:$(postgresqlVersion)-$(postgresqlExtension)
+postgresqlImage=ghcr.io/cloudnative-pg/postgresql:$(postgresqlVersion)
 
 minikube=true
 minikubeResources=--memory 6144 --cpus 4
 storage_class=manual
 # https://minikube.sigs.k8s.io/docs/drivers/
-minikubeDriver=docker
+minikubeDriver=podman
 minikubePersistantPath=${PWD}/persistentVolumesData/$(k8scluster).d/$(postgresqlInstance)
 minikubeNodes=3
 
@@ -73,12 +74,10 @@ export PGUSERUID := $(shell id -u)
 export PGUSERGID := $(shell id -g)
 
 
-asdf-install :
+mise-install :
 # https://asdf-vm.com/guide/getting-started.html
-	@asdf plugin-add helm
-	@asdf plugin-add kubectl
-	@asdf plugin-add minikube
-	@asdf install
+	@mise install
+	@mise trust
 
 configure:
 	@echo "-- Creating configuration files and needed directories"
@@ -115,7 +114,8 @@ start : configure \
 start_minikube :
 ifeq ($(minikube), true)
 	@echo "-- Starting Minikube"
-  ifeq ($(minikubeDriver), docker)
+  ifeq ($(minikubeDriver), $(filter $(minikubeDriver), podman docker))
+	@minikube config set rootless false
 	@minikube start -p $(k8scluster) $(minikubeResources) \
 	  --kubernetes-version=$(kubeversion) \
 	  --driver=$(minikubeDriver) \
