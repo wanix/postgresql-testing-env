@@ -34,3 +34,13 @@ cluster:
 
   monitoring:
     enabled: true
+    podMonitor:
+      enabled: true # https://cloudnative-pg.io/docs/1.29/monitoring/#deprecation-of-automatic-podmonitor-creation
+                     # still applying it, wait for tls usage in monitoring not yet available
+                     # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/templates/cluster.yaml#L128-L140
+    prometheusRule:
+      excludeRules: # https://github.com/cloudnative-pg/charts/issues/825
+        - CNPGClusterLogicalReplicationErrorsCritical
+        - CNPGClusterLogicalReplicationErrors
+        - CNPGClusterLogicalReplicationStoppedCritical
+        - CNPGClusterLogicalReplicationStopped

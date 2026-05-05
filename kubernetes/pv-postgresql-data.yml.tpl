@@ -4,7 +4,7 @@ kind: PersistentVolume
 metadata:
   name: pv-pgdata-${PGINSTANCENAME}-${PGNODE}
 spec:
-  storageClassName: manual
+  storageClassName: ${PGSTORAGECLASS}
   accessModes:
     - ReadWriteOnce
   capacity:
