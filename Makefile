@@ -10,19 +10,19 @@
 
 k8scluster=pg-test
 kubeconfig=${PWD}/generated/k8s/$(k8scluster).kubeconfig
-kubeversion=$(shell grep "kubectl " .tool-versions | cut -d " " -f 2)
+kubeversion=$(shell kubectl version --client -o json | jq -r .clientVersion.gitVersion)
 namespace=pg-test
 install_prometheus=true
 with_monitoring=true
 
 # https://github.com/cloudnative-pg/cloudnative-pg/tags
-cnpgVersion=1.28.0
+cnpgVersion=1.29.0
 
-cnpgOperatorChartVersion=0.27.0  # OperatorVersion=1.25.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
-cnpgClusterChartVersion=0.5.0 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
+cnpgOperatorChartVersion=0.28.0  # OperatorVersion=1.29.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
+cnpgClusterChartVersion=0.6.0 # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
 
 postgresqlInstance=postgresql-testing
-postgresqlVersion=18.1
+postgresqlVersion=18.3
 # postgresqlExtension=hypopg-hll-cron
 postgresqlDiskSize=50Gi
 postgresqlNodes=3
@@ -45,6 +45,8 @@ generated_cfg_path=generated/cfg/$(k8scluster).d/$(postgresqlInstance)
 kubeMountPath=/tmp/hostpath_pv_data/$(postgresqlInstance)
 
 grafana_port=8080
+
+prometheusDiskSize=10Gi
 
 #######################
 # Makefile operations #
@@ -73,11 +75,12 @@ export PGPROMMONITORING := $(with_monitoring)
 export PGUSERUID := $(shell id -u)
 export PGUSERGID := $(shell id -g)
 
+export PROMETHEUSDISKSIZE := $(prometheusDiskSize)
 
 mise-install :
 # https://asdf-vm.com/guide/getting-started.html
-	@mise install
 	@mise trust
+	@mise install
 
 configure:
 	@echo "-- Creating configuration files and needed directories"
@@ -87,10 +90,11 @@ configure:
 	@test -d $(generated_helm_values_path) || mkdir -p $(generated_helm_values_path)
 	@test -d $(generated_cfg_path) || mkdir -p $(generated_cfg_path)
 
-	@cat kubernetes/cm-postgresql-client.yml.tpl  | envsubst > $(generated_k8s_path)/cm-postgresql-client.yml
-	@cat kubernetes/pod-postgresql-client.yml.tpl | envsubst > $(generated_k8s_path)/pod-postgresql-client.yml
-	@cat kubernetes/pv-postgresql-client.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-client.yml
-	@cat kubernetes/pvc-postgresql-client.yml.tpl | envsubst > $(generated_k8s_path)/pvc-postgresql-client.yml
+	@cat kubernetes/cm-postgresql-client.yml.tpl     | envsubst > $(generated_k8s_path)/cm-postgresql-client.yml
+	@cat kubernetes/pod-postgresql-client.yml.tpl    | envsubst > $(generated_k8s_path)/pod-postgresql-client.yml
+	@cat kubernetes/pv-postgresql-client.yml.tpl     | envsubst > $(generated_k8s_path)/pv-postgresql-client.yml
+	@cat kubernetes/pvc-postgresql-client.yml.tpl    | envsubst > $(generated_k8s_path)/pvc-postgresql-client.yml
+	@cat kubernetes/pod-monitor-cnpg-cluster.yml.tpl | envsubst > $(generated_k8s_path)/pod-monitor-cnpg-cluster.yml
 
 	@cat kubernetes/pv-postgresql-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-data.yml
 	@for i in $(shell seq -w 1 $(postgresqlNodes)); do \
@@ -100,8 +104,9 @@ configure:
 		cat kubernetes/pv-postgresql-data.yml.tpl  | envsubst > $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
 
-	@cat kubernetes/helm-cnpg-operator.yml.tpl | envsubst > $(generated_helm_values_path)/helm-cnpg-operator.yml
-	@cat kubernetes/helm-cnpg-cluster.yml.tpl | envsubst > $(generated_helm_values_path)/helm-cnpg-cluster.yml
+	@cat kubernetes/helm-cnpg-operator.yml.tpl         | envsubst > $(generated_helm_values_path)/helm-cnpg-operator.yml
+	@cat kubernetes/helm-cnpg-cluster.yml.tpl          | envsubst > $(generated_helm_values_path)/helm-cnpg-cluster.yml
+	@cat kubernetes/helm-kube-prometheus-stack.yml.tpl | envsubst > $(generated_helm_values_path)/helm-kube-prometheus-stack.yml
 
 start : configure \
 	start_minikube \
@@ -127,6 +132,10 @@ ifeq ($(minikube), true)
 	  --driver=$(minikubeDriver) \
 	  --nodes $(minikubeNodes)
   endif
+	@minikube -p $(k8scluster) addons enable metrics-server
+	@minikube -p $(k8scluster) addons enable dashboard
+	@minikube -p $(k8scluster) addons enable ingress
+	@minikube -p $(k8scluster) addons enable volumesnapshots
 endif
 
 install_cloudnative_pg_helm_chart_repo :
@@ -141,13 +150,15 @@ install_cloudnative_pg :
 	@test -f $(minikubePersistantPath)/postgresql/flag-cnpg.flag || (sleep 10s && touch $(minikubePersistantPath)/postgresql/flag-cnpg.flag)
 
 install_postgresql_cluster :
-	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
-	@helm upgrade --install cnpg --namespace $(namespace) --create-namespace  --version "$(cnpgClusterChartVersion)"  -f $(generated_helm_values_path)/helm-cnpg-cluster.yml cnpg/cluster
 	@echo "-- Creating PostgreSQL Cluster PVs"
 	@for i in $(shell seq -w 1 $(postgresqlNodes)); do \
 	    export PGNODE=$$i; \
 		kubectl apply -n $(namespace) -f $(generated_k8s_path)/pv-postgresql-data-$$i.yml; \
 	done
+	@echo "-- Creating PostgreSQL Cluster $(postgresqlInstance)"
+	@helm upgrade --install cnpg --namespace $(namespace) --create-namespace  --version "$(cnpgClusterChartVersion)"  -f $(generated_helm_values_path)/helm-cnpg-cluster.yml cnpg/cluster
+	# @echo "-- Creating pod monitor for PostgreSQL Cluster $(postgresqlInstance)"
+	# @kubectl apply -n $(namespace) -f $(generated_k8s_path)/pod-monitor-cnpg-cluster.yml;
 	@echo "-- Waiting for cluster $(namespace) to be ready"
 	@./helpers/wait_for_pods_to_exist.sh 5 300 '  waiting pod creation' -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
 	@echo "  waiting pod availability" && kubectl wait pod --timeout 120s --for=condition=Ready -n $(namespace) -l cnpg.io/cluster=pg-cluster-$(postgresqlInstance) -l cnpg.io/instanceRole=primary
@@ -158,7 +169,7 @@ ifeq ($(install_prometheus), true)
   ifeq ($(minikube), true)
 	@kubectl get ns monitoring 2>&1 >/dev/null || kubectl create ns monitoring
 	@helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-	@helm upgrade --install prometheus-community --namespace monitoring -f kubernetes/helm-prometheus-community-kube-prometheus-stack.yml prometheus-community/kube-prometheus-stack
+	@helm upgrade --install prometheus-community --namespace monitoring -f $(generated_helm_values_path)/helm-kube-prometheus-stack.yml prometheus-community/kube-prometheus-stack
   endif
 endif
 

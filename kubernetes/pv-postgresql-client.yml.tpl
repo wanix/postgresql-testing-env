@@ -4,7 +4,7 @@ kind: PersistentVolume
 metadata:
   name: pv-pgsql-${PGINSTANCENAME}
 spec:
-  storageClassName: manual
+  storageClassName: ${PGSTORAGECLASS}
   accessModes:
     - ReadWriteOnce
   capacity:
