@@ -1,0 +1,38 @@
+#####################
+# Global repo tasks #
+#####################
+[init]
+description = "Initialize the env for the repo"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+KUBECTL_PNG_SRC="aqua:cloudnative-pg/cloudnative-pg/kubectl-cnpg"
+CNPG_VERSION="${CNPG_VERSION:-{{vars.CNPG_VERSION}}}"
+
+mise ls -c | grep -qe "${KUBECTL_PNG_SRC}\\s\\+${CNPG_VERSION}\\s\\+" \
+  || mise use --env local "${KUBECTL_PNG_SRC}@${CNPG_VERSION}"
+mise install
+"""
+
+[mrproper]
+description = "Delete everything temporary and generated, including cluster and profile and local mise data"
+depends = ["infra-delete-cluster", "infra-delete-profile"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
+
+GENERATED_K8S_PATH="generated/k8s/${K8SCLUSTER}.d"
+GENERATED_HELM_VALUES_PATH="generated/helm-values/${K8SCLUSTER}.d"
+KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+
+rmdir "${GENERATED_K8S_PATH}" 2>/dev/null || true
+rmdir "${GENERATED_HELM_VALUES_PATH}" 2>/dev/null || true
+
+rm -f nohup.out
+rm -f mise.local.toml
+rm -f "${KUBECONFIG}"
+mise prune --tools -y
+"""

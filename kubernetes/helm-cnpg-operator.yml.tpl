@@ -3,6 +3,8 @@
 # https://github.com/cloudnative-pg/charts/tree/main/charts/cloudnative-pg
 ############################################################################
 
+image:
+  tag: "$CNPG_VERSION"
 
 resources:
   # If you want to specify resources, uncomment the following

@@ -8,7 +8,7 @@ nodeExporter:
 defaultRules:
   create: true
   rules:
-    alertmanager: false
+    alertmanager: true
     etcd: false
     configReloaders: false
     general: false
@@ -18,11 +18,11 @@ defaultRules:
     kubeApiserverSlos: false
     kubelet: true
     kubeProxy: false
-    kubePrometheusGeneral: false
+    kubePrometheusGeneral: true
     kubePrometheusNodeRecording: false
     kubernetesApps: false
     kubernetesResources: false
-    kubernetesStorage: false
+    kubernetesStorage: true
     kubernetesSystem: false
     kubeScheduler: false
     kubeStateMetrics: false
@@ -30,8 +30,8 @@ defaultRules:
     node: true
     nodeExporterAlerting: false
     nodeExporterRecording: true
-    prometheus: false
-    prometheusOperator: false
+    prometheus: true
+    prometheusOperator: true
 
 #nodeSelector:
   #workload: monitor
@@ -47,9 +47,14 @@ prometheus:
 grafana:
   enabled: true
   defaultDashboardsEnabled: false
-  sidecar:
+  sidecar: # https://github.com/prometheus-community/helm-charts/issues/6419
     dashboards:
       enabled: true
+    datasources:
+      watchMethod: "SLEEP"
+  persistence:
+    enabled: false
+    type: sts
   #nodeSelector:
     #workload: monitor
 alertmanager:

@@ -1,15 +1,9 @@
 ###############################
 # Creating the infrastructure #
 ###############################
-[install]
-description = "Trust and install mise tools"
-run = """
-mise trust
-mise install
-"""
-
-[configure]
+[infra-configure]
 description = "Create configuration files and needed directories"
+depends = ["init"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -27,6 +21,7 @@ STORAGE_CLASS="${STORAGE_CLASS:-{{vars.STORAGE_CLASS}}}"
 WITH_MONITORING="${WITH_MONITORING:-{{vars.WITH_MONITORING}}}"
 CNPG_OPERATOR_CHART_VERSION="${CNPG_OPERATOR_CHART_VERSION:-{{vars.CNPG_OPERATOR_CHART_VERSION}}}"
 CNPG_CLUSTER_CHART_VERSION="${CNPG_CLUSTER_CHART_VERSION:-{{vars.CNPG_CLUSTER_CHART_VERSION}}}"
+CNPG_VERSION="${CNPG_VERSION:-{{vars.CNPG_VERSION}}}"
 MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-{{vars.MINIKUBE_DRIVER}}}"
 MINIKUBE_NODES="${MINIKUBE_NODES:-{{vars.MINIKUBE_NODES}}}"
 
@@ -79,9 +74,9 @@ cat kubernetes/helm-cnpg-cluster.yml.tpl          | envsubst > "${GENERATED_HELM
 cat kubernetes/helm-kube-prometheus-stack.yml.tpl | envsubst > "${GENERATED_HELM_VALUES_PATH}/helm-kube-prometheus-stack.yml"
 """
 
-[start]
+[infra-start]
 description = "Configure and start the full stack (minikube + monitoring + cnpg + postgresql)"
-depends = ["configure"]
+depends = ["infra-configure"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -101,14 +96,14 @@ MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-{{vars.MINIKUBE_DRIVER}}}"
 MINIKUBE_NODES="${MINIKUBE_NODES:-{{vars.MINIKUBE_NODES}}}"
 GRAFANA_PORT="${GRAFANA_PORT:-{{vars.GRAFANA_PORT}}}"
 
-KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+
 MINIKUBE_PERSISTENT_PATH="${PWD}/persistentVolumesData/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
 GENERATED_K8S_PATH="generated/k8s/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
 GENERATED_HELM_VALUES_PATH="generated/helm-values/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
 KUBE_MOUNT_PATH="/tmp/hostpath_pv_data/${POSTGRESQL_INSTANCE}"
 KUBEVERSION="$(kubectl version --client -o json | jq -r .clientVersion.gitVersion)"
 
-export KUBECONFIG
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
 
 # -- Start minikube
 if [ "$MINIKUBE" = "true" ]; then
@@ -182,17 +177,17 @@ if [ "$INSTALL_PROMETHEUS" = "true" ] && [ "$MINIKUBE" = "true" ]; then
   echo "  waiting grafana availability"
   kubectl wait pod --timeout 120s --for=condition=Ready \
     -n monitoring -l app.kubernetes.io/instance=prometheus-community -l app.kubernetes.io/name=grafana
-  running=$(ps -ef | grep "kubectl port-forward -n monitoring svc/prometheus-community-grafana ${GRAFANA_PORT}:80" | grep -vc grep || true)
+  running=$(ps -ef | grep "kubectl port-forward --address localhost -n monitoring svc/prometheus-community-grafana ${GRAFANA_PORT}:80" | grep -vc grep || true)
   if [ "$running" -eq 0 ]; then
     echo "-- Forwarding Grafana"
-    nohup kubectl port-forward -n monitoring "svc/prometheus-community-grafana" "${GRAFANA_PORT}:80" &
+    nohup kubectl port-forward --address localhost -n monitoring "svc/prometheus-community-grafana" "${GRAFANA_PORT}:80"&
   fi
 fi
-
-mise run info
+mise run infra-status
+mise run infra-info
 """
 
-[stop]
+[infra-stop]
 description = "Stop the minikube cluster and grafana port-forward"
 run = """
 #!/usr/bin/env bash
@@ -205,6 +200,8 @@ MINIKUBE="${MINIKUBE:-{{vars.MINIKUBE}}}"
 GRAFANA_PORT="${GRAFANA_PORT:-{{vars.GRAFANA_PORT}}}"
 
 MINIKUBE_PERSISTENT_PATH="${PWD}/persistentVolumesData/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
 
 # Stop grafana port-forward
 if [ "$MINIKUBE" = "true" ] && [ "$INSTALL_PROMETHEUS" = "true" ]; then
@@ -229,7 +226,7 @@ else
 fi
 """
 
-[status]
+[infra-status]
 description = "Show minikube cluster status"
 run = """
 #!/usr/bin/env bash
@@ -238,17 +235,18 @@ set -euo pipefail
 K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
 MINIKUBE="${MINIKUBE:-{{vars.MINIKUBE}}}"
 
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+
 if [ "$MINIKUBE" = "true" ]; then
   echo "-- Minikube status"
-  minikube status -p "$K8SCLUSTER" -l cluster
+  minikube status -p "$K8SCLUSTER"
 else
   echo "This operation is for minikube driver only!"
 fi
 """
 
-[info]
+[infra-info]
 description = "Show cluster info and grafana credentials"
-depends = ["status"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -258,8 +256,7 @@ INSTALL_PROMETHEUS="${INSTALL_PROMETHEUS:-{{vars.INSTALL_PROMETHEUS}}}"
 MINIKUBE="${MINIKUBE:-{{vars.MINIKUBE}}}"
 GRAFANA_PORT="${GRAFANA_PORT:-{{vars.GRAFANA_PORT}}}"
 
-KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
-export KUBECONFIG
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
 
 echo
 echo "You can now set your env:"
@@ -276,9 +273,9 @@ if [ "$INSTALL_PROMETHEUS" = "true" ] && [ "$MINIKUBE" = "true" ]; then
 fi
 """
 
-[delete-cluster]
+[infra-delete-cluster]
 description = "Delete the minikube cluster"
-depends = ["stop"]
+depends = ["infra-stop"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -290,6 +287,8 @@ MINIKUBE="${MINIKUBE:-{{vars.MINIKUBE}}}"
 GRAFANA_PORT="${GRAFANA_PORT:-{{vars.GRAFANA_PORT}}}"
 
 MINIKUBE_PERSISTENT_PATH="${PWD}/persistentVolumesData/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
 
 # Stop grafana port-forward
 if [ "$MINIKUBE" = "true" ] && [ "$INSTALL_PROMETHEUS" = "true" ]; then
@@ -312,9 +311,9 @@ if [ "$MINIKUBE" = "true" ]; then
 fi
 """
 
-[delete-profile]
+[infra-delete-profile]
 description = "Delete the cluster and all generated files for this profile"
-depends = ["delete-cluster"]
+depends = ["infra-delete-cluster"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -339,27 +338,7 @@ rmdir "${GENERATED_CFG_PATH}" 2>/dev/null || true
 rm -rf "$MINIKUBE_PERSISTENT_PATH"
 """
 
-[mrproper]
-description = "Delete cluster and clean all generated/persistent data"
-depends = ["delete-cluster", "delete-profile"]
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-
-K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
-
-GENERATED_K8S_PATH="generated/k8s/${K8SCLUSTER}.d"
-GENERATED_HELM_VALUES_PATH="generated/helm-values/${K8SCLUSTER}.d"
-
-rmdir "${GENERATED_K8S_PATH}" 2>/dev/null || true
-rmdir "${GENERATED_HELM_VALUES_PATH}" 2>/dev/null || true
-
-rm -f nohup.out
-"""
-
-
-
-[dashboard]
+[infra-dashboard]
 description = "Launch Minikube dashboard"
 run = """
 #!/usr/bin/env bash
@@ -367,6 +346,8 @@ set -euo pipefail
 
 K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
 MINIKUBE="${MINIKUBE:-{{vars.MINIKUBE}}}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
 
 if [ "$MINIKUBE" = "true" ]; then
   echo "-- Launching Minikube dashboard"
