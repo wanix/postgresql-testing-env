@@ -1,0 +1,28 @@
+###################################
+# Create and launch a psql client #
+###################################
+[client]
+description = "Create client pod and open an interactive shell into it"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
+NAMESPACE="${NAMESPACE:-{{vars.NAMESPACE}}}"
+POSTGRESQL_INSTANCE="${POSTGRESQL_INSTANCE:-{{vars.POSTGRESQL_INSTANCE}}}"
+
+KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+GENERATED_K8S_PATH="generated/k8s/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
+export KUBECONFIG
+
+echo "-- Creating client pod and resources"
+kubectl apply -n "$NAMESPACE" -f "${GENERATED_K8S_PATH}/cm-postgresql-client.yml"
+kubectl apply -n "$NAMESPACE" -f "${GENERATED_K8S_PATH}/pv-postgresql-client.yml"
+kubectl apply -n "$NAMESPACE" -f "${GENERATED_K8S_PATH}/pvc-postgresql-client.yml"
+kubectl apply -n "$NAMESPACE" -f "${GENERATED_K8S_PATH}/pod-postgresql-client.yml"
+./helpers/wait_for_pods_to_exist.sh 5 60 "  waiting for ${POSTGRESQL_INSTANCE}-client" \
+  -n "$NAMESPACE" "${POSTGRESQL_INSTANCE}-client"
+kubectl wait pod --timeout 120s --for=condition=Ready -n "$NAMESPACE" "${POSTGRESQL_INSTANCE}-client"
+echo "-- Connecting client pod"
+kubectl exec -n "$NAMESPACE" -it "${POSTGRESQL_INSTANCE}-client" -- /bin/bash
+"""
