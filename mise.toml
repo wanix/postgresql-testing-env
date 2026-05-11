@@ -2,6 +2,7 @@
 helm = "4.1.4"
 jq = "1.8.1"
 kubectl = "1.35.3"
+stern = "latest"
 minikube = "1.38.1"
 
 #########################
@@ -11,21 +12,19 @@ minikube = "1.38.1"
 #   K8SCLUSTER=my-cluster POSTGRESQL_NODES=1 mise run start
 
 [vars]
+CNPG_VERSION = "1.29.0"                # https://github.com/cloudnative-pg/cloudnative-pg/tags
+CNPG_OPERATOR_CHART_VERSION = "0.28.0" # OperatorVersion=1.29.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
+CNPG_CLUSTER_CHART_VERSION = "0.6.0"   # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
+POSTGRESQL_VERSION = "18.3"
+
 K8SCLUSTER = "pg-test"
 NAMESPACE = "pg-test"
 INSTALL_PROMETHEUS = "true"
 WITH_MONITORING = "true"
 
-# https://github.com/cloudnative-pg/cloudnative-pg/tags
-CNPG_VERSION = "1.29.0"
-
-CNPG_OPERATOR_CHART_VERSION = "0.28.0" # OperatorVersion=1.29.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
-CNPG_CLUSTER_CHART_VERSION = "0.6.0"   # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
-
 POSTGRESQL_INSTANCE = "postgresql-testing"
-POSTGRESQL_VERSION = "18.3"
 # POSTGRESQL_EXTENSION = "hypopg-hll-cron"
-POSTGRESQL_DISK_SIZE = "50Gi"
+POSTGRESQL_DISK_SIZE = "40Gi"
 POSTGRESQL_NODES = "3"
 POSTGRESQL_NODE_MEM = "2Gi"
 POSTGRESQL_NODE_CPU = "1000m"

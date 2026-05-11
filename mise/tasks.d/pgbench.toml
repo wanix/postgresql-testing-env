@@ -1,0 +1,130 @@
+###############################################
+# Tasks related to benches and tests execution #
+###############################################
+
+[pgbench-init]
+description = "Initialize the env for benches and tests execution, creating the pgbench dataset with NB_SCALE (default 250) scale factor"
+depends = ["infra-status"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
+NAMESPACE="${NAMESPACE:-{{vars.NAMESPACE}}}"
+POSTGRESQL_INSTANCE="${POSTGRESQL_INSTANCE:-{{vars.POSTGRESQL_INSTANCE}}}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+export PGINSTANCENAME="$POSTGRESQL_INSTANCE"
+
+echo "-- Initializing benchs environment --"
+
+kubectl cnpg pgbench \
+    --namespace "$NAMESPACE" \
+    --job-name job-pgbench-init-${PGINSTANCENAME} pg-cluster-${PGINSTANCENAME} \
+    -- --initialize --scale "${NB_SCALE:-250}" --init-steps=dtGvp
+
+./helpers/wait_for_pods_to_exist.sh 5 300 '  waiting pgbench pod creation' \
+  -n "$NAMESPACE" -l "batch.kubernetes.io/job-name=job-pgbench-init-${PGINSTANCENAME}"
+
+kubectl wait pod --timeout 120s --for=condition=Ready \
+  -n "$NAMESPACE" -l "batch.kubernetes.io/job-name=job-pgbench-init-${PGINSTANCENAME}"
+
+stern --namespace "$NAMESPACE" --timestamps \
+  --container-state waiting,running job-pgbench-init-${PGINSTANCENAME} &
+STERN_PID=$!
+
+kubectl --timeout=3600s wait job \
+  --for=condition=complete -n "$NAMESPACE" job-pgbench-init-${PGINSTANCENAME} >/dev/null 2>&1 &
+complete_waiter=$!
+kubectl --timeout=3600s wait job \
+  --for=condition=failed -n "$NAMESPACE" job-pgbench-init-${PGINSTANCENAME} >/dev/null 2>&1 &
+failed_waiter=$!
+wait -n $complete_waiter $failed_waiter 2>/dev/null || true
+# If the job is complete, we kill the failed waiter, if it failed, we kill the complete waiter, in both cases we continue to the next job
+kill $complete_waiter $failed_waiter 2>/dev/null || true
+
+# job done, we can kill stern
+kill $STERN_PID 2>/dev/null || true
+"""
+
+[pgbench-run]
+description = "Run NB_INSTANCES (default 1) of pgbench with NB_CLIENTS (default 1) for every inside NB_JOBS (default 1) for NB_SECONDS (default 60)"
+depends = ["infra-status"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
+NAMESPACE="${NAMESPACE:-{{vars.NAMESPACE}}}"
+POSTGRESQL_INSTANCE="${POSTGRESQL_INSTANCE:-{{vars.POSTGRESQL_INSTANCE}}}"
+
+NB_INSTANCES="${NB_INSTANCES:-1}"
+NB_CLIENTS="${NB_CLIENTS:-1}"
+NB_JOBS="${NB_JOBS:-1}"
+NB_SECONDS="${NB_SECONDS:-60}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+export PGINSTANCENAME="$POSTGRESQL_INSTANCE"
+
+echo "-- Removing any previous completed job --"
+for i in $(seq 1 "$NB_INSTANCES"); do
+  kubectl get job job-pgbench-run-${PGINSTANCENAME}-${i} -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null \
+    | grep -q True \
+    && kubectl delete job -n "$NAMESPACE" job-pgbench-run-${PGINSTANCENAME}-${i} || true
+done
+
+echo "-- Launching $NB_INSTANCES instances of pgbench with $NB_CLIENTS clients for $NB_JOBS jobs for $NB_SECONDS seconds --"
+
+for i in $(seq 1 "$NB_INSTANCES"); do
+  kubectl cnpg pgbench \
+      --namespace "$NAMESPACE" \
+      --job-name job-pgbench-run-${PGINSTANCENAME}-${i} pg-cluster-${PGINSTANCENAME} \
+      -- --time "$NB_SECONDS" --client "$NB_CLIENTS" --jobs "$NB_JOBS" --no-vacuum --progress-timestamp --progress 2
+done
+
+for i in $(seq 1 "$NB_INSTANCES"); do
+  ./helpers/wait_for_pods_to_exist.sh 5 300 '  waiting pgbench pod creation' \
+    -n "$NAMESPACE" -l "batch.kubernetes.io/job-name=job-pgbench-run-${PGINSTANCENAME}-${i}"
+done
+
+stern --namespace "$NAMESPACE" --timestamps \
+  --container-state waiting,running job-pgbench-run-${PGINSTANCENAME} &
+STERN_PID=$!
+
+# Now we launched stern, waiting for the jobs to be finished to kill stern
+for i in $(seq 1 "$NB_INSTANCES"); do
+  kubectl --timeout=$(( NB_SECONDS * 2 ))s wait job \
+    --for=condition=complete -n "$NAMESPACE" job-pgbench-run-${PGINSTANCENAME}-${i} >/dev/null 2>&1 &
+  complete_waiter=$!
+  kubectl --timeout=$(( NB_SECONDS * 2 ))s wait job \
+    --for=condition=failed -n "$NAMESPACE" job-pgbench-run-${PGINSTANCENAME}-${i} >/dev/null 2>&1 &
+  failed_waiter=$!
+  wait -n $complete_waiter $failed_waiter 2>/dev/null || true
+  # If the job is complete, we kill the failed waiter, if it failed, we kill the complete waiter, in both cases we continue to the next job
+  kill $complete_waiter $failed_waiter 2>/dev/null || true
+done
+
+# job done, we can kill stern
+kill $STERN_PID 2>/dev/null || true
+"""
+
+
+[pgbench-cleanup]
+description = "Cleanup the env for benches"
+depends = ["infra-status"]
+
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
+NAMESPACE="${NAMESPACE:-{{vars.NAMESPACE}}}"
+POSTGRESQL_INSTANCE="${POSTGRESQL_INSTANCE:-{{vars.POSTGRESQL_INSTANCE}}}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+export PGINSTANCENAME="$POSTGRESQL_INSTANCE"
+
+kubectl delete job -n "$NAMESPACE" job-pgbench-init-${PGINSTANCENAME} || true
+kubectl get jobs -n "$NAMESPACE" -o name | grep "job-pgbench-run-${PGINSTANCENAME}-" \
+  | xargs -I{} kubectl delete {} -n "$NAMESPACE"
+"""
