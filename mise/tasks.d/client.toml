@@ -3,6 +3,7 @@
 ###################################
 [client]
 description = "Create client pod and open an interactive shell into it"
+wait_for = ["infra-start","cnpg-operator-update","cnpg-cluster-update"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail

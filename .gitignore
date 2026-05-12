@@ -6,6 +6,8 @@ generated/k8s/*.d/
 generated/k8s/*.kubeconfig
 generated/cfg/*.d/
 generated/helm-values/*.d/
+local-config.d/*
+!local-config.d/README.md
 
 # Default local dir for persistant volumes
 persistentVolumesData/*.d/**
@@ -21,3 +23,6 @@ nohup.out
 
 # mise local configuration file
 mise.local.toml
+
+# all gitkeep files have to be considered
+!.gitkeep
