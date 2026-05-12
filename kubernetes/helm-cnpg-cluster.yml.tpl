@@ -44,3 +44,25 @@ cluster:
         - CNPGClusterLogicalReplicationErrors
         - CNPGClusterLogicalReplicationStoppedCritical
         - CNPGClusterLogicalReplicationStopped
+
+poolers:
+  - name: rw # real name is calculated with $fullnameOverride
+    type: rw
+    instances: ${PGPOOLERINSTANCESNUMBER}
+    monitoring:
+      enabled: true
+      podMonitor:
+        enabled: true
+        relabelings:
+          - targetLabel: type
+            replacement: rw
+  - name: ro # real name is calculated with $fullnameOverride
+    type: ro
+    instances: ${PGPOOLERINSTANCESNUMBER}
+    monitoring:
+      enabled: true
+      podMonitor:
+        enabled: true
+        relabelings:
+          - targetLabel: type
+            replacement: ro

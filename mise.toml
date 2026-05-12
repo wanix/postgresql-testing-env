@@ -1,6 +1,7 @@
 [tools]
 helm = "4.1.4"
 jq = "1.8.1"
+yq = "4.53.2"
 kubectl = "1.35.3"
 stern = "latest"
 minikube = "1.38.1"
@@ -31,6 +32,8 @@ POSTGRESQL_NODE_CPU = "1000m"
 # POSTGRESQL_IMAGE = "ghcr.io/wanix/postgresql:{{vars.POSTGRESQL_VERSION}}-{{vars.POSTGRESQL_EXTENSION}}"
 POSTGRESQL_IMAGE = "ghcr.io/cloudnative-pg/postgresql:{{vars.POSTGRESQL_VERSION}}"
 
+PGPOOLERINSTANCESNUMBER = "2"
+
 MINIKUBE = "true"
 MINIKUBE_RESOURCES = "--memory 6144 --cpus 4"
 STORAGE_CLASS = "manual"     # https://minikube.sigs.k8s.io/docs/drivers/
@@ -38,6 +41,16 @@ MINIKUBE_DRIVER = "podman"   # docker, podman, virtualbox, hyperkit, kvm2, paral
 MINIKUBE_NODES = "3"
 
 GRAFANA_PORT = "8080"
+
+CNPG_OPERATOR_VALUES_OVERRIDE = ""
+CNPG_CLUSTER_VALUES_OVERRIDE = ""
+
+PGBENCH_SCALE = "10"
+PGBENCH_CLIENTS = "10"
+PG_BENCH_JOBS = "1"
+PGBENCH_DURATION_SECONDS = "60"
+PGBENCH_INSTANCES = "1"
+
 
 ###############
 # Mise tasks  #

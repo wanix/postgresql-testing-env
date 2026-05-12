@@ -1,0 +1,101 @@
+[cnpg-helm-repo]
+description = "Update or install the CloudNativePG Helm repository"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -- Install cnpg helm repo
+echo "-- installing/updating helm chart repo"
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm repo update cnpg
+"""
+
+[cnpg-operator-update]
+description = "Update or install the CloudNativePG operator"
+depends = ["infra-configure", "cnpg-helm-repo", "infra-status-silent"]
+wait_for = ["infra-start"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
+NAMESPACE="${NAMESPACE:-{{vars.NAMESPACE}}}"
+CNPG_OPERATOR_CHART_VERSION="${CNPG_OPERATOR_CHART_VERSION:-{{vars.CNPG_OPERATOR_CHART_VERSION}}}"
+POSTGRESQL_INSTANCE="${POSTGRESQL_INSTANCE:-{{vars.POSTGRESQL_INSTANCE}}}"
+CNPG_OPERATOR_VALUES_OVERRIDE="${CNPG_OPERATOR_VALUES_OVERRIDE:-{{vars.CNPG_OPERATOR_VALUES_OVERRIDE}}}"
+
+GENERATED_HELM_VALUES_PATH="generated/helm-values/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+
+HELM_OVERRIDE_FLAGS=""
+if [ -n "$CNPG_OPERATOR_VALUES_OVERRIDE" ]; then
+  IFS=',' read -ra OVERRIDE_FILES <<< "$CNPG_OPERATOR_VALUES_OVERRIDE"
+  for f in "${OVERRIDE_FILES[@]}"; do
+    if [ ! -r "$f" ]; then
+      echo "error: override file given in CNPG_OPERATOR_VALUES_OVERRIDE not found or not readable: $f" >&2
+      exit 1
+    fi
+    HELM_OVERRIDE_FLAGS="$HELM_OVERRIDE_FLAGS -f $f"
+  done
+fi
+
+# -- Install cnpg operator
+echo "-- Installing/Updating cloudnative-pg operator"
+helm upgrade --install cnpg-operator --namespace cnpg-system --create-namespace \
+  --version "$CNPG_OPERATOR_CHART_VERSION" \
+  -f "${GENERATED_HELM_VALUES_PATH}/helm-cnpg-operator.yml" \
+  $HELM_OVERRIDE_FLAGS \
+  cnpg/cloudnative-pg
+kubectl wait pod --timeout 120s --for=condition=Ready -n cnpg-system -l app.kubernetes.io/name=cloudnative-pg
+"""
+
+[cnpg-cluster-update]
+description = "Update or install a CloudNativePG cluster"
+depends = ["infra-configure", "cnpg-helm-repo", "infra-status-silent"]
+wait_for = ["infra-start","cnpg-operator-update"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+K8SCLUSTER="${K8SCLUSTER:-{{vars.K8SCLUSTER}}}"
+NAMESPACE="${NAMESPACE:-{{vars.NAMESPACE}}}"
+POSTGRESQL_INSTANCE="${POSTGRESQL_INSTANCE:-{{vars.POSTGRESQL_INSTANCE}}}"
+POSTGRESQL_NODES="${POSTGRESQL_NODES:-{{vars.POSTGRESQL_NODES}}}"
+CNPG_CLUSTER_CHART_VERSION="${CNPG_CLUSTER_CHART_VERSION:-{{vars.CNPG_CLUSTER_CHART_VERSION}}}"
+GENERATED_K8S_PATH="generated/k8s/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
+CNPG_CLUSTER_VALUES_OVERRIDE="${CNPG_CLUSTER_VALUES_OVERRIDE:-{{vars.CNPG_CLUSTER_VALUES_OVERRIDE}}}"
+GENERATED_HELM_VALUES_PATH="generated/helm-values/${K8SCLUSTER}.d/${POSTGRESQL_INSTANCE}"
+
+export KUBECONFIG="${PWD}/generated/k8s/${K8SCLUSTER}.kubeconfig"
+
+HELM_OVERRIDE_FLAGS=""
+if [ -n "$CNPG_CLUSTER_VALUES_OVERRIDE" ]; then
+  IFS=',' read -ra OVERRIDE_FILES <<< "$CNPG_CLUSTER_VALUES_OVERRIDE"
+  for f in "${OVERRIDE_FILES[@]}"; do
+    if [ ! -r "$f" ]; then
+      echo "error: override file given in CNPG_CLUSTER_VALUES_OVERRIDE not found or not readable: $f" >&2
+      exit 1
+    fi
+    HELM_OVERRIDE_FLAGS="$HELM_OVERRIDE_FLAGS -f $f"
+  done
+fi
+
+# -- Install postgresql cluster
+echo "-- Creating PostgreSQL Cluster PVs"
+for i in $(seq -w 1 "$POSTGRESQL_NODES"); do
+  kubectl apply -n "$NAMESPACE" -f "${GENERATED_K8S_PATH}/pv-postgresql-data-${i}.yml"
+done
+echo "-- Creating/Updating PostgreSQL Cluster ${POSTGRESQL_INSTANCE}"
+helm upgrade --install cnpg-cluster-"${POSTGRESQL_INSTANCE}" --namespace "$NAMESPACE" --create-namespace \
+  --version "$CNPG_CLUSTER_CHART_VERSION" \
+  -f "${GENERATED_HELM_VALUES_PATH}/helm-cnpg-cluster.yml" \
+  $HELM_OVERRIDE_FLAGS \
+  cnpg/cluster
+echo "-- Waiting for cluster ${NAMESPACE} to be ready"
+./helpers/wait_for_pods_to_exist.sh 5 300 '  waiting pod creation' \
+  -n "$NAMESPACE" -l "cnpg.io/cluster=pg-cluster-${POSTGRESQL_INSTANCE}" -l cnpg.io/instanceRole=primary
+echo "  waiting pod availability"
+kubectl wait pod --timeout 120s --for=condition=Ready \
+  -n "$NAMESPACE" -l "cnpg.io/cluster=pg-cluster-${POSTGRESQL_INSTANCE}" -l cnpg.io/instanceRole=primary
+"""

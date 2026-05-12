@@ -36,3 +36,31 @@ rm -f mise.local.toml
 rm -f "${KUBECONFIG}"
 mise prune --tools -y
 """
+
+[start]
+description = "Start the infrastructure and the cluster, and port-forward Grafana if enabled"
+depends_post = [
+  "infra-configure",
+  "infra-start",
+  "cnpg-operator-update",
+  "cnpg-cluster-update",
+  "infra-grafana-port-forward-start",
+  "infra-info"
+]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+cat << EOF
+--------------------------------------------------------------------------------
+        Starting the infrastructure, installing operator and cluster
+--------------------------------------------------------------------------------
+EOF
+"""
+
+[lsvars]
+description = "List environment vars that can be used to override default configuration at call time"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+yq -Poy '.vars' mise.toml
+"""
