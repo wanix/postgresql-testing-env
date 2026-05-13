@@ -13,8 +13,8 @@ minikube = "1.38.1"
 #   K8SCLUSTER=my-cluster POSTGRESQL_NODES=1 mise run start
 
 [vars]
-CNPG_VERSION = "1.29.0"                # https://github.com/cloudnative-pg/cloudnative-pg/tags
-CNPG_OPERATOR_CHART_VERSION = "0.28.0" # OperatorVersion=1.29.0  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
+CNPG_VERSION = "1.29.1"                # https://github.com/cloudnative-pg/cloudnative-pg/tags
+CNPG_OPERATOR_CHART_VERSION = "0.28.2" # OperatorVersion=1.29.1  # https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml
 CNPG_CLUSTER_CHART_VERSION = "0.6.0"   # https://github.com/cloudnative-pg/charts/blob/main/charts/cluster/Chart.yaml
 POSTGRESQL_VERSION = "18.3"
 
@@ -33,6 +33,8 @@ POSTGRESQL_NODE_CPU = "1000m"
 POSTGRESQL_IMAGE = "ghcr.io/cloudnative-pg/postgresql:{{vars.POSTGRESQL_VERSION}}"
 
 PGPOOLERINSTANCESNUMBER = "2"
+PGPOOLERPOOLSIZE = "10"
+PGPOOLERMAXCONN = "100"
 
 MINIKUBE = "true"
 MINIKUBE_RESOURCES = "--memory 6144 --cpus 4"
