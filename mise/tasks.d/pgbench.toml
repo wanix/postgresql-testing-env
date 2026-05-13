@@ -18,10 +18,15 @@ export PGINSTANCENAME="$POSTGRESQL_INSTANCE"
 
 echo "-- Initializing benchs environment --"
 
+PGBENCH_OPTS=""
+test -n "${PGHOST:-""}" && PGBENCH_OPTS+=" --host $PGHOST"
+test -n "${PGPORT:-""}" && PGBENCH_OPTS+=" --port $PGPORT"
+test -n "${PGUSER:-""}" && PGBENCH_OPTS+=" --username $PGUSER"
+
 kubectl cnpg pgbench \
     --namespace "$NAMESPACE" \
     --job-name job-pgbench-init-${PGINSTANCENAME} pg-cluster-${PGINSTANCENAME} \
-    -- --initialize --scale "${NB_SCALE:-250}" --init-steps=dtGvp
+    -- --initialize --scale "${NB_SCALE:-250}" --init-steps=dtGvp $PGBENCH_OPTS
 
 ./helpers/wait_for_pods_to_exist.sh 5 300 '  waiting pgbench pod creation' \
   -n "$NAMESPACE" -l "batch.kubernetes.io/job-name=job-pgbench-init-${PGINSTANCENAME}"
@@ -75,11 +80,17 @@ done
 
 echo "-- Launching $NB_INSTANCES instances of pgbench with $NB_CLIENTS clients for $NB_JOBS jobs for $NB_SECONDS seconds --"
 
+PGBENCH_OPTS=""
+test -n "${PGHOST:-""}" && PGBENCH_OPTS+=" --host $PGHOST"
+test -n "${PGPORT:-""}" && PGBENCH_OPTS+=" --port $PGPORT"
+test -n "${PGUSER:-""}" && PGBENCH_OPTS+=" --username $PGUSER"
+
 for i in $(seq 1 "$NB_INSTANCES"); do
   kubectl cnpg pgbench \
       --namespace "$NAMESPACE" \
       --job-name job-pgbench-run-${PGINSTANCENAME}-${i} pg-cluster-${PGINSTANCENAME} \
-      -- --time "$NB_SECONDS" --client "$NB_CLIENTS" --jobs "$NB_JOBS" --no-vacuum --progress-timestamp --progress 2
+      -- --time "$NB_SECONDS" --client "$NB_CLIENTS" --jobs "$NB_JOBS" --no-vacuum \
+      --progress-timestamp --progress 2 $PGBENCH_OPTS
 done
 
 for i in $(seq 1 "$NB_INSTANCES"); do
@@ -126,5 +137,5 @@ export PGINSTANCENAME="$POSTGRESQL_INSTANCE"
 
 kubectl delete job -n "$NAMESPACE" job-pgbench-init-${PGINSTANCENAME} || true
 kubectl get jobs -n "$NAMESPACE" -o name | grep "job-pgbench-run-${PGINSTANCENAME}-" \
-  | xargs -I{} kubectl delete {} -n "$NAMESPACE"
+  | xargs -I{} kubectl delete {} -n "$NAMESPACE" || true
 """
