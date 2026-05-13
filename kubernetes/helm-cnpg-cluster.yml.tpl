@@ -49,6 +49,9 @@ poolers:
   - name: rw # real name is calculated with $fullnameOverride
     type: rw
     instances: ${PGPOOLERINSTANCESNUMBER}
+    parameters:
+      max_client_conn: "${PGPOOLERMAXCONN}"
+      default_pool_size: "${PGPOOLERPOOLSIZE}"
     monitoring:
       enabled: true
       podMonitor:
@@ -59,6 +62,9 @@ poolers:
   - name: ro # real name is calculated with $fullnameOverride
     type: ro
     instances: ${PGPOOLERINSTANCESNUMBER}
+    parameters:
+      max_client_conn: "${PGPOOLERMAXCONN}"
+      default_pool_size: "${PGPOOLERPOOLSIZE}"
     monitoring:
       enabled: true
       podMonitor:

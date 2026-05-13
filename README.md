@@ -121,6 +121,11 @@ mise run pgbench-cleanup
 NB_SCALE=1000 mise run pgbench-init
 
 NB_INSTANCES=10 NB_CLIENTS=10 NB_JOBS=10 NB_SECONDS=300 mise run pgbench-run
+
+Use the PGBOUNCER Endpoint:
+PGHOST=$(kubectl get svc -n "${$NAMESPACE:-$(yq -Poy '.vars.NAMESPACE' mise.toml)}" \
+  -l "cnpg.io/podRole=pooler" --no-headers -o custom-columns=NAME:.metadata.name | grep 'rw$') \
+  NB_INSTANCES=10 NB_CLIENTS=10 NB_JOBS=10 NB_SECONDS=300 mise run pgbench-run
 ```
 
 ## External doc or code
